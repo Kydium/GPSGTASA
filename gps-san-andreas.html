@@ -1,0 +1,870 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#000000">
+<title>GPS San Andreas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Oswald:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<style>
+/* Si consigues la fuente "Pricedown" (la del logo de GTA), ponla junto a este archivo como pricedown.ttf */
+@font-face{font-family:"Pricedown";src:url("fuentes/pricedown.ttf") format("truetype"),url("fuentes/pricedown.otf") format("opentype"),url("pricedown.ttf") format("truetype"),url("pricedown bl.ttf") format("truetype");font-display:swap}
+:root{
+  --sa-title:"Pricedown","Anton",Impact,sans-serif;
+  --sa-ui:"Oswald","Arial Narrow",Arial,sans-serif;
+  --sa-white:#f3f3f3;
+  --sa-green-l:#5fa04e;
+  --sa-blue:#acc8ff;
+  --sa-orange:#e1a33a;
+  --panel:rgba(12,12,12,.88);
+  --outline:-2px -2px 0 #000,2px -2px 0 #000,-2px 2px 0 #000,2px 2px 0 #000,0 2px 0 #000,0 -2px 0 #000,2px 0 0 #000,-2px 0 0 #000;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:#778a43;color:var(--sa-white);font-family:var(--sa-ui);overflow:hidden;-webkit-tap-highlight-color:transparent}
+#map{position:absolute;inset:0}
+.maplibregl-ctrl-attrib{background:rgba(0,0,0,.55)!important;font-size:9px}
+.maplibregl-ctrl-attrib a{color:#ccc!important}
+.maplibregl-ctrl-attrib-button{filter:invert(1)}
+
+/* botones / paneles: tarjetas oscuras redondeadas como en CarPlay, con letras de GTA */
+.card{background:var(--panel);border-radius:16px;box-shadow:0 4px 14px rgba(0,0,0,.35)}
+.btn{height:46px;min-width:46px;padding:0 16px;border:0;border-radius:23px;background:var(--panel);color:#fff;font:700 15px var(--sa-ui);letter-spacing:.5px;text-transform:uppercase;cursor:pointer;box-shadow:0 3px 10px rgba(0,0,0,.35)}
+.btn:active{transform:scale(.97)}
+.btn.on{color:var(--sa-blue)}
+.btn.primary{background:#1f6fe0}
+.btn.danger{background:#d13434}
+
+/* búsqueda */
+#top{position:absolute;top:12px;left:12px;right:12px;z-index:10;max-width:520px;display:flex;flex-direction:column;gap:8px}
+body.nav #top{display:none}
+#searchRow{display:flex;gap:8px}
+#q{flex:1;min-width:0;height:48px;padding:0 18px;border:0;border-radius:24px;background:var(--panel);color:#fff;font:500 17px var(--sa-ui);outline:none;box-shadow:0 3px 10px rgba(0,0,0,.35)}
+#q::placeholder{color:#9a9a9a}
+#results{display:none;max-height:46vh;overflow:auto;padding:6px 0}
+#results div{padding:11px 16px;cursor:pointer;font-size:15px;line-height:1.3}
+#results div:active,#results div:hover{background:rgba(255,255,255,.08)}
+#results small{display:block;color:#9a9a9a;font-size:12px}
+
+/* instrucción (arriba izquierda, como el video) */
+#instr{position:absolute;top:12px;left:12px;z-index:10;display:none;align-items:center;gap:12px;padding:12px 18px 12px 12px;max-width:min(calc(100vw - 150px),420px)}
+body.nav #instr{display:flex}
+#instrIcon{width:50px;height:50px;flex:none}
+#instrDist{font:34px/1 var(--sa-title);color:#fff;text-shadow:var(--outline);letter-spacing:1px}
+#instrText{font:500 15px/1.25 var(--sa-ui);color:#ddd;margin-top:3px}
+
+/* HUD reloj + velocidad */
+#hud{position:absolute;right:14px;top:72px;z-index:9;text-align:right;pointer-events:none}
+body.nav #hud{top:128px}
+#clock{font:42px/1 var(--sa-title);color:#fff;text-shadow:var(--outline);letter-spacing:2px}
+#speed{font:32px/1.1 var(--sa-title);color:var(--sa-green-l);text-shadow:var(--outline);letter-spacing:2px}
+#speed span{font-size:18px}
+#btnEnd{position:absolute;top:12px;right:12px;z-index:11;display:none}
+body.nav #btnEnd{display:block}
+
+/* nombre de zona */
+#zone{position:absolute;right:16px;bottom:120px;z-index:9;font:38px/1 var(--sa-title);color:#fff;text-shadow:var(--outline);text-align:right;max-width:75vw;opacity:0;transition:opacity 1s;pointer-events:none;letter-spacing:1px}
+#zone.show{opacity:1}
+
+/* tarjeta de llegada (abajo izquierda, como el video) */
+#trip{position:absolute;left:12px;bottom:18px;z-index:10;display:none;gap:22px;padding:12px 20px}
+body.nav #trip{display:flex}
+#trip div{text-align:center;font:500 12px var(--sa-ui);color:#aaa;text-transform:lowercase}
+#trip b{display:block;font:26px/1 var(--sa-title);color:#fff;letter-spacing:1px;font-weight:400}
+#trip .g b{color:var(--sa-green-l)}
+
+/* botones flotantes */
+#fabs{position:absolute;right:12px;bottom:18px;z-index:10;display:flex;flex-direction:column;gap:10px;align-items:flex-end}
+body.has-card #fabs{bottom:262px}
+
+/* tarjeta de destino */
+#card{position:absolute;left:12px;right:12px;bottom:14px;z-index:12;max-width:520px;margin:0 auto;padding:16px;display:none}
+body.has-card:not(.nav) #card{display:block}
+#cardTitle{font:28px/1.05 var(--sa-title);color:#fff;text-shadow:var(--outline);letter-spacing:1px}
+#cardSub{color:#a9a9a9;font-size:13px;margin-top:4px}
+#cardStats{display:flex;gap:22px;margin:12px 0 14px}
+#cardStats div{font:700 12px var(--sa-ui);color:#999;text-transform:uppercase;letter-spacing:1px}
+#cardStats b{display:block;font:28px/1 var(--sa-title);color:var(--sa-green-l);text-shadow:var(--outline);letter-spacing:1px;font-weight:400}
+#cardBtns{display:flex;gap:10px}
+#cardBtns .btn{flex:1}
+#alts{display:flex;gap:8px;margin:-4px 0 12px;overflow-x:auto}
+#alts:empty{display:none}
+.chip{flex:none;border:2px solid #444;background:#1a1a1a;color:#ccc;border-radius:12px;padding:6px 12px;font:500 12px var(--sa-ui);text-align:left;cursor:pointer}
+.chip b{display:block;font:20px/1 var(--sa-title);color:#fff;font-weight:400;letter-spacing:1px}
+.chip.on{border-color:#f2c230}
+.chip.on b{color:#f2c230}
+#compass{position:absolute;left:14px;top:72px;z-index:9;width:40px;height:40px;padding:3px;border:0;background:none;cursor:pointer;transition:transform .2s}
+body.nav #compass{top:auto;bottom:96px}
+#compass img{display:block}
+
+/* carteles */
+#banner{position:absolute;left:0;right:0;top:36%;z-index:20;text-align:center;pointer-events:none;opacity:0;transition:opacity .4s}
+#banner.show{opacity:1}
+#bannerBig{font:clamp(40px,11vw,76px)/1 var(--sa-title);color:var(--sa-orange);text-shadow:var(--outline);letter-spacing:2px}
+#bannerSmall{font:clamp(20px,5vw,30px)/1.2 var(--sa-title);color:#fff;text-shadow:var(--outline);margin-top:6px}
+#ver{position:absolute;left:8px;bottom:4px;z-index:5;font:500 10px var(--sa-ui);color:rgba(0,0,0,.45);pointer-events:none}
+body.nav #ver{display:none}
+#toast{position:absolute;left:50%;transform:translateX(-50%);top:80px;z-index:30;padding:10px 16px;font-size:15px;max-width:90vw;display:none;text-align:center}
+
+/* blips */
+.blip{cursor:pointer;line-height:0}
+.blip svg,.blip img{filter:drop-shadow(0 1px 1px rgba(0,0,0,.6))}
+.blip img,.player img{display:block}
+.player{line-height:0;pointer-events:none}
+.maplibregl-popup-content{background:#111;color:#fff;border-radius:12px;padding:12px 14px;font:500 14px var(--sa-ui)}
+.maplibregl-popup-content b{font:20px var(--sa-title);font-weight:400;letter-spacing:1px}
+.maplibregl-popup-content .btn{margin-top:10px;width:100%;height:38px}
+.maplibregl-popup-tip{border-top-color:#111!important;border-bottom-color:#111!important}
+.maplibregl-popup-close-button{color:#aaa;font-size:18px}
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div id="top">
+  <div id="searchRow">
+    <input id="q" type="search" placeholder="¿A dónde vamos, CJ?" autocomplete="off" enterkeyhint="search">
+  </div>
+  <div id="results" class="card"></div>
+</div>
+
+<div id="instr" class="card"><svg id="instrIcon" viewBox="0 0 52 52"></svg><div><div id="instrDist">--</div><div id="instrText">Calculando…</div></div></div>
+<button id="btnEnd" class="btn danger">Terminar</button>
+
+<div id="hud"><div id="clock">00:00</div><div id="speed">000<span> KM/H</span></div></div>
+<div id="zone"></div>
+<button id="compass" aria-label="Apuntar al norte"></button>
+
+<div id="trip" class="card">
+  <div><b id="tEta">--:--</b>llegada</div>
+  <div class="g"><b id="tMin">--</b>min</div>
+  <div><b id="tKm">--</b>km</div>
+</div>
+
+<div id="fabs">
+  <button class="btn" id="btnPoi">Blips</button>
+  <button class="btn on" id="btnVoice">Voz</button>
+  <button class="btn" id="btnCenter" aria-label="Centrar en mí">
+    <svg width="22" height="22" viewBox="0 0 22 22" style="vertical-align:middle"><path d="M11 2 L19 19 L11 15 L3 19 Z" fill="#fff" stroke="#000" stroke-width="2" stroke-linejoin="round"/></svg>
+  </button>
+</div>
+
+<div id="card" class="card">
+  <div id="cardTitle">Destino</div>
+  <div id="cardSub"></div>
+  <div id="cardStats"><div>Distancia<b id="stDist">--</b></div><div>Tiempo<b id="stTime">--</b></div><div>Llegada<b id="stEta">--</b></div></div>
+  <div id="alts"></div>
+  <div id="cardBtns">
+    <button class="btn primary" id="btnGo">Iniciar</button>
+    <button class="btn" id="btnCancel">Cancelar</button>
+  </div>
+</div>
+
+<div id="banner"><div id="bannerBig"></div><div id="bannerSmall"></div></div>
+<div id="toast" class="card"></div>
+<div id="ver">v7 · colores SA</div>
+
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script>
+/* =====================================================================
+   GPS SAN ANDREAS
+   Mapa vectorial real (OpenStreetMap vía OpenFreeMap, sin API key)
+   pintado con el estilo del mapa de GTA San Andreas, rutas reales (OSRM),
+   búsqueda (Nominatim) y lugares del propio mapa.
+   ===================================================================== */
+
+const CONFIG = {
+  inicio: [-71.5350, -16.3989],     // [lng, lat] si no hay GPS: Plaza de Armas de Arequipa
+  perfil: 'driving',
+  osrm: 'https://router.project-osrm.org/route/v1/',
+  nominatim: 'https://nominatim.openstreetmap.org/',
+  tiles: 'https://tiles.openfreemap.org/planet',
+  glyphs: 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf',
+  photon: 'https://photon.komoot.io/api/',
+  fuenteMapa: true,                 // usar Pricedown (fuentes/pricedown.ttf) también en los nombres del mapa
+  desvioMetros: 45,
+  inclinacionNav: 60,               // inclinación 3D de la cámara al navegar
+  suavizadoIconos: 1,               // 0 = pixelado original, 1 = suave (recomendado), 2 = más liso
+  carpetaIconos: 'iconos/',         // tus iconos de SA: iconos/icon22.gif, etc.
+  iconosWeb: 'https://assets.open.mp/assets/images/mapIcons/',
+};
+
+/* -------- colores del mapa de San Andreas (cámbialos a tu gusto) -------- */
+const SA = {               // colores sacados del mapa original de San Andreas
+  campo:     '#778a43',   // verde oliva (terreno abierto)
+  bosque:    '#396b2c',   // verde oscuro (bosques y parques)
+  pasto:     '#576840',
+  desierto:  '#9c8573',   // tierra/desierto
+  cerro:     '#72604e',
+  arena:     '#deba60',   // playas
+  agua:      '#7389ae',
+  urbano:    '#9c9a9c',   // zonas de ciudad (gris)
+  edificio:  '#ffffff',   // edificios blancos y planos
+  calle:     '#000000',   // calles negras
+  autopista: '#84817a',   // autopistas: gris con borde negro (doble línea)
+  tren:      '#541812',   // vías del tren rojo oscuro
+  pista:     '#84817a',
+  ruta:      '#b44fe0',   // MORADO. Para amarillo pon '#f2c230'
+  rutaBorde: '#000',
+  rutaAlt:   '#4a4a48',
+};
+
+/* ------------------- lugares del mapa -> iconos de San Andreas -------------------
+   número = icono original de SA (open.mp/docs/scripting/resources/mapicons)        */
+const LUGARES = {
+  hospital: [22, 'Hospital'], clinic: [22, 'Clínica'], doctors: [22, 'Consultorio'], pharmacy: [22, 'Farmacia'], chemist: [22, 'Farmacia'],
+  police: [30, 'Comisaría'], fuel: [55, 'Grifo'], car_repair: [63, 'Taller'], car_wash: [63, 'Lavadero'],
+  fast_food: [10, 'Comida rápida'], restaurant: [50, 'Restaurante'], cafe: [17, 'Cafetería'], ice_cream: [17, 'Heladería'],
+  bar: [49, 'Bar'], pub: [49, 'Bar'], biergarten: [49, 'Bar'], nightclub: [48, 'Discoteca'], casino: [44, 'Casino'],
+  bank: [52, 'Banco'], atm: [52, 'Cajero'], bureau_de_change: [52, 'Casa de cambio'],
+  fitness_centre: [54, 'Gimnasio'], sports_centre: [54, 'Centro deportivo'],
+  clothes: [45, 'Ropa'], shoes: [45, 'Zapatería'], hairdresser: [7, 'Barbería'], beauty: [7, 'Salón'], tattoo: [39, 'Tatuajes'],
+  school: [36, 'Colegio'], college: [36, 'Instituto'], university: [36, 'Universidad'], kindergarten: [36, 'Inicial'],
+  aerodrome: [5, 'Aeropuerto'],
+};
+const POR_NOMBRE = [ // pollerías, pizzerías y hamburgueserías por su nombre
+  [['pollo', 'polleria', 'pollería', 'chicken', 'broaster', 'kfc'], 14, 'Pollería'],
+  [['pizza', 'pizzeria', 'pizzería'], 29, 'Pizzería'],
+  [['burger', 'hamburg', 'bembos'], 10, 'Hamburguesería'],
+];
+/* dibujos de respaldo si no hay imagen de SA disponible */
+const ring = (inner, bg='#000') => `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10.5" fill="${bg}" stroke="#000" stroke-width="2"/>${inner}</svg>`;
+const DIBUJOS = {
+  22: ring('<path d="M10 6h4v4h4v4h-4v4h-4v-4H6v-4h4z" fill="#e0262b"/>', '#fff'),
+  30: ring('<path d="M12 4l2.2 4.6 5 .6-3.7 3.4 1 5-4.5-2.5-4.5 2.5 1-5L4.8 9.2l5-.6z" fill="#3a6fd8" stroke="#fff" stroke-width=".9"/>'),
+  55: ring('<rect x="7" y="7" width="7" height="11" rx="1" fill="#f0c23b"/><rect x="8.5" y="8.5" width="4" height="3" fill="#000"/><path d="M14 9l3 2v5.5a1 1 0 0 1-2 0V13h-1" fill="none" stroke="#f0c23b" stroke-width="1.5"/>'),
+  63: ring('<path d="M8 7h3v3l2 0 3 8h-3l-1-2h-4l-1 2H4z" fill="#e1a33a"/>'),
+  10: ring('<path d="M6 11a6 4 0 0 1 12 0z" fill="#e3a446"/><rect x="5.5" y="12" width="13" height="2" fill="#5ab04a"/><rect x="6" y="14.3" width="12" height="2" fill="#7a3d1f"/><path d="M6 16.6h12a2 1.6 0 0 1-2 1.6H8a2 1.6 0 0 1-2-1.6z" fill="#e3a446"/>'),
+  29: ring('<path d="M5 7l14 2-9 10z" fill="#f2c94c" stroke="#b5651d" stroke-width="1.4"/><circle cx="11" cy="10" r="1.3" fill="#c0392b"/><circle cx="13" cy="13" r="1.1" fill="#c0392b"/><circle cx="9.5" cy="13.5" r="1" fill="#c0392b"/>'),
+  14: ring('<path d="M14.5 6.5a4 4 0 0 1 0 6l-4 4-1.5-1.5-2 .5.5-2-1.5-1.5 4-4a4 4 0 0 1 4.5-1.5z" fill="#e3a446" stroke="#fff" stroke-width=".7"/><path d="M7 15l-2 3" stroke="#fff" stroke-width="2"/>'),
+  50: ring('<path d="M8 5v6a2 2 0 0 0 1.5 2V19M7 5v4M10 5v4" stroke="#ddd" stroke-width="1.4" fill="none"/><path d="M15 5c2 1 2 6 0 7v7" stroke="#ddd" stroke-width="1.6" fill="none"/>'),
+  17: ring('<path d="M6 10h10v4a4 4 0 0 1-4 4h-2a4 4 0 0 1-4-4z" fill="#ddd"/><path d="M16 11h1.5a2 2 0 0 1 0 4H16" stroke="#ddd" stroke-width="1.4" fill="none"/>'),
+  52: ring('<text x="12" y="17.5" text-anchor="middle" font-family="Arial Black,Arial" font-weight="900" font-size="15" fill="#4fbf3a">$</text>'),
+  54: ring('<rect x="5" y="9" width="2.5" height="6" fill="#ddd"/><rect x="16.5" y="9" width="2.5" height="6" fill="#ddd"/><rect x="7.5" y="10.5" width="9" height="3" fill="#ddd"/>'),
+  45: ring('<path d="M9 6l3 2 3-2 4 3-2 3-1.5-1V18h-7v-7L7 12 5 9z" fill="#e0262b" stroke="#fff" stroke-width=".7"/>'),
+  7:  ring('<circle cx="8" cy="16" r="2.3" fill="none" stroke="#fff" stroke-width="1.6"/><circle cx="16" cy="16" r="2.3" fill="none" stroke="#fff" stroke-width="1.6"/><path d="M9.5 14L16 5M14.5 14L8 5" stroke="#fff" stroke-width="1.6"/>'),
+  39: ring('<path d="M12 5c3 3 4 5 4 7a4 4 0 0 1-8 0c0-2 1-4 4-7z" fill="#e0262b"/>'),
+  49: ring('<path d="M7 7h10l-5 6z" fill="#acc8ff"/><path d="M12 13v4M9 18h6" stroke="#acc8ff" stroke-width="1.6"/>'),
+  48: ring('<path d="M9 16V7l8-2v9" stroke="#e05cd8" stroke-width="1.6" fill="none"/><circle cx="7.5" cy="16" r="2" fill="#e05cd8"/><circle cx="15.5" cy="14" r="2" fill="#e05cd8"/>'),
+  44: ring('<rect x="7" y="6" width="10" height="12" rx="1.5" fill="#fff"/><circle cx="12" cy="12" r="2.2" fill="#e0262b"/>'),
+  36: ring('<path d="M4 10l8-4 8 4-8 4z" fill="#ddd"/><path d="M8 12v4c2 1.5 6 1.5 8 0v-4" fill="#ddd"/>'),
+  5:  ring('<path d="M12 4l1.5 5 6 3v1.5l-6-1.5v4l2 1.5V19L12 18l-3.5 1v-1.5l2-1.5v-4l-6 1.5V12l6-3z" fill="#ddd"/>'),
+  41: `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 22 22"><rect x="3" y="3" width="16" height="16" fill="#e0262b" stroke="#000" stroke-width="2.5"/><rect x="7" y="7" width="8" height="8" fill="none" stroke="#fff" stroke-width="1" opacity=".7"/></svg>`,
+  2:  `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 22 22"><path d="M11 1.5 L19.5 19.5 L11 15.2 L2.5 19.5 Z" fill="#fff" stroke="#000" stroke-width="1.6" stroke-linejoin="round"/></svg>`,
+  4:  `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 22 22"><circle cx="11" cy="11" r="9" fill="#000" stroke="#fff" stroke-width="1.5"/><text x="11" y="15.5" text-anchor="middle" font-family="Arial" font-weight="bold" font-size="12" fill="#fff">N</text></svg>`,
+};
+
+/* ---------- fuente Pricedown también en el mapa ----------
+   El mapa necesita las letras en un formato especial (SDF). Aquí se generan
+   en el propio navegador a partir de tu fuentes/pricedown.ttf.             */
+const TinySDF = (() => {
+  const INF = 1e20;
+  function edt1d(grid, offset, stride, length, f, v, z){
+    v[0] = 0; z[0] = -INF; z[1] = INF; f[0] = grid[offset];
+    for (let q = 1, k = 0, s = 0; q < length; q++){
+      f[q] = grid[offset + q * stride]; const q2 = q * q;
+      do { const r = v[k]; s = (f[q] - f[r] + q2 - r * r) / (q - r) / 2; } while (s <= z[k] && --k > -1);
+      k++; v[k] = q; z[k] = s; z[k + 1] = INF;
+    }
+    for (let q = 0, k = 0; q < length; q++){ while (z[k + 1] < q) k++; const r = v[k], qr = q - r; grid[offset + q * stride] = f[r] + qr * qr; }
+  }
+  function edt(data, x0, y0, width, height, gridSize, f, v, z){
+    for (let x = x0; x < x0 + width; x++) edt1d(data, y0 * gridSize + x, gridSize, height, f, v, z);
+    for (let y = y0; y < y0 + height; y++) edt1d(data, y * gridSize + x0, 1, width, f, v, z);
+  }
+  return class { // basado en @mapbox/tiny-sdf (BSD-2)
+    constructor({ fontSize = 24, buffer = 3, radius = 8, cutoff = 0.25, fontFamily = 'sans-serif' } = {}){
+      Object.assign(this, { buffer, cutoff, radius });
+      const size = this.size = fontSize + buffer * 4;
+      const canvas = document.createElement('canvas'); canvas.width = canvas.height = size;
+      const ctx = this.ctx = canvas.getContext('2d', { willReadFrequently: true });
+      ctx.font = `${fontSize}px ${fontFamily}`; ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left'; ctx.fillStyle = 'black';
+      this.gridOuter = new Float64Array(size * size); this.gridInner = new Float64Array(size * size);
+      this.f = new Float64Array(size); this.z = new Float64Array(size + 1); this.v = new Uint16Array(size);
+    }
+    draw(char){
+      const m = this.ctx.measureText(char);
+      const glyphTop = Math.ceil(m.actualBoundingBoxAscent), glyphLeft = 0, glyphAdvance = m.width;
+      const glyphWidth = Math.max(0, Math.min(this.size - this.buffer, Math.ceil(m.actualBoundingBoxRight - m.actualBoundingBoxLeft)));
+      const glyphHeight = Math.min(this.size - this.buffer, glyphTop + Math.ceil(m.actualBoundingBoxDescent));
+      const width = glyphWidth + 2 * this.buffer, height = glyphHeight + 2 * this.buffer, len = Math.max(width * height, 0);
+      const data = new Uint8ClampedArray(len);
+      const glyph = { data, width, height, glyphWidth, glyphHeight, glyphTop, glyphLeft, glyphAdvance };
+      if (glyphWidth === 0 || glyphHeight === 0) return glyph;
+      const { ctx, buffer, gridInner, gridOuter } = this;
+      ctx.clearRect(buffer, buffer, glyphWidth, glyphHeight);
+      ctx.fillText(char, buffer, buffer + glyphTop);
+      const img = ctx.getImageData(buffer, buffer, glyphWidth, glyphHeight);
+      gridOuter.fill(INF, 0, len); gridInner.fill(0, 0, len);
+      for (let y = 0; y < glyphHeight; y++) for (let x = 0; x < glyphWidth; x++){
+        const a = img.data[4 * (y * glyphWidth + x) + 3] / 255; if (a === 0) continue;
+        const j = (y + buffer) * width + x + buffer;
+        if (a === 1) { gridOuter[j] = 0; gridInner[j] = INF; } else { const d = 0.5 - a; gridOuter[j] = d > 0 ? d * d : 0; gridInner[j] = d < 0 ? d * d : 0; }
+      }
+      edt(gridOuter, 0, 0, width, height, width, this.f, this.v, this.z);
+      edt(gridInner, buffer, buffer, glyphWidth, glyphHeight, width, this.f, this.v, this.z);
+      for (let i = 0; i < len; i++){ const d = Math.sqrt(gridOuter[i]) - Math.sqrt(gridInner[i]); data[i] = Math.round(255 - 255 * (d / this.radius + this.cutoff)); }
+      return glyph;
+    }
+  };
+})();
+// codificador mínimo del formato .pbf de letras que usa el mapa
+function pbfGlyphs(stack, range, glyphs){
+  const out = [];
+  const varint = (arr, n) => { n >>>= 0; while (n > 127) { arr.push((n & 127) | 128); n >>>= 7; } arr.push(n); };
+  const zz = n => (n << 1) ^ (n >> 31);
+  const field = (arr, num, type) => varint(arr, (num << 3) | type);
+  const bytes = (arr, num, data) => { field(arr, num, 2); varint(arr, data.length); for (let i = 0; i < data.length; i++) arr.push(data[i]); };
+  const str = (arr, num, s) => bytes(arr, num, new TextEncoder().encode(s));
+  const stackMsg = [];
+  str(stackMsg, 1, stack); str(stackMsg, 2, range);
+  for (const g of glyphs){
+    const m = [];
+    field(m, 1, 0); varint(m, g.id);
+    if (g.bitmap.length) bytes(m, 2, g.bitmap);
+    field(m, 3, 0); varint(m, g.width); field(m, 4, 0); varint(m, g.height);
+    field(m, 5, 0); varint(m, zz(g.left)); field(m, 6, 0); varint(m, zz(g.top)); field(m, 7, 0); varint(m, Math.round(g.advance));
+    bytes(stackMsg, 3, m);
+  }
+  bytes(out, 1, stackMsg);
+  return new Uint8Array(out).buffer;
+}
+let fuenteLista = null, sdf = null;
+function prepararFuente(){
+  if (!fuenteLista) fuenteLista = Promise.race([
+    document.fonts.load('24px "Pricedown"').catch(() => {}),
+    new Promise(r => setTimeout(r, 4000)),
+  ]).then(() => { sdf = new TinySDF({ fontSize: 24, buffer: 3, radius: 8, cutoff: 0.25, fontFamily: '"Pricedown","Anton",Impact,sans-serif' }); });
+  return fuenteLista;
+}
+maplibregl.addProtocol('sa-fuente', async (params) => {
+  const m = params.url.match(/^sa-fuente:\/\/([^/]+)\/(\d+)-(\d+)\.pbf/);
+  const stack = decodeURIComponent(m[1]), a = +m[2], b = +m[3];
+  if (!CONFIG.fuenteMapa || !/pricedown/i.test(stack)) { // otras letras: las normales de OpenFreeMap
+    const r = await fetch(CONFIG.glyphs.replace('{fontstack}', m[1]).replace('{range}', a + '-' + b));
+    return { data: await r.arrayBuffer() };
+  }
+  await prepararFuente();
+  const glyphs = [];
+  for (let id = a; id <= b; id++){
+    if (id < 32) continue;
+    const c = sdf.draw(String.fromCodePoint(id));
+    glyphs.push({ id, bitmap: c.data, width: c.glyphWidth, height: c.glyphHeight, left: c.glyphLeft, top: c.glyphTop - 27, advance: c.glyphAdvance });
+  }
+  return { data: pbfGlyphs(stack, a + '-' + b, glyphs) };
+});
+const FUENTE = CONFIG.fuenteMapa ? ['Pricedown'] : ['Noto Sans Bold'];
+
+/* ---------------------------- estilo del mapa ---------------------------- */
+const W = (stops) => ['interpolate', ['exponential', 1.6], ['zoom'], ...stops.flat()];
+const isClass = list => ['match', ['get', 'class'], list, true, false];
+const nombre = ['upcase', ['coalesce', ['get', 'name:es'], ['get', 'name'], '']];
+const nombreMin = ['downcase', ['coalesce', ['get', 'name'], '']];
+const esComida = ['match', ['get', 'subclass'], ['fast_food', 'restaurant', 'cafe'], true, false];
+const iconoLugar = ['case',
+  ...POR_NOMBRE.flatMap(([palabras, id]) => [['all', esComida, ['any', ...palabras.map(p => ['in', p, nombreMin])]], 'sa' + id]),
+  ['match', ['get', 'subclass'], ...Object.entries(LUGARES).flatMap(([k, [id]]) => [k, 'sa' + id]), ''],
+];
+const empty = { type: 'FeatureCollection', features: [] };
+const style = {
+  version: 8,
+  glyphs: 'sa-fuente://{fontstack}/{range}.pbf',
+  sources: {
+    omt: { type: 'vector', url: CONFIG.tiles },
+    ruta: { type: 'geojson', data: empty, lineMetrics: true },
+    hecha: { type: 'geojson', data: empty },
+    alt: { type: 'geojson', data: empty },
+  },
+  layers: [
+    { id: 'fondo', type: 'background', paint: { 'background-color': SA.campo } },
+    { id: 'urbano', type: 'fill', source: 'omt', 'source-layer': 'landuse', filter: isClass(['residential','commercial','industrial','retail','neighbourhood','railway','garages','hospital','school','university','college','quarry']), paint: { 'fill-color': SA.urbano } },
+    { id: 'pasto', type: 'fill', source: 'omt', 'source-layer': 'landcover', filter: isClass(['grass','farmland','wetland']), paint: { 'fill-color': SA.pasto } },
+    { id: 'bosque', type: 'fill', source: 'omt', 'source-layer': 'landcover', filter: isClass(['wood']), paint: { 'fill-color': SA.bosque } },
+    { id: 'desierto', type: 'fill', source: 'omt', 'source-layer': 'landcover', filter: isClass(['rock','bare_rock','scree','sand']), paint: { 'fill-color': ['match', ['get', 'subclass'], ['beach'], SA.arena, SA.desierto] } },
+    { id: 'cerros', type: 'fill', source: 'omt', 'source-layer': 'landcover', filter: isClass(['ice','glacier']), paint: { 'fill-color': '#e9e9e7' } },
+    { id: 'parque', type: 'fill', source: 'omt', 'source-layer': 'park', paint: { 'fill-color': SA.bosque } },
+    { id: 'canchas', type: 'fill', source: 'omt', 'source-layer': 'landuse', filter: isClass(['pitch','stadium','cemetery','playground','park','grass']), paint: { 'fill-color': SA.bosque } },
+    { id: 'agua', type: 'fill', source: 'omt', 'source-layer': 'water', paint: { 'fill-color': SA.agua } },
+    { id: 'rios', type: 'line', source: 'omt', 'source-layer': 'waterway', paint: { 'line-color': SA.agua, 'line-width': W([[10, .6], [14, 2], [18, 8]]) } },
+    { id: 'aeropuerto', type: 'fill', source: 'omt', 'source-layer': 'aeroway', filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': SA.urbano } },
+    { id: 'pista', type: 'line', source: 'omt', 'source-layer': 'aeroway', filter: ['==', ['geometry-type'], 'LineString'], paint: { 'line-color': SA.pista, 'line-width': W([[11, 1], [18, 40]]) } },
+    { id: 'edificios', type: 'fill', source: 'omt', 'source-layer': 'building', minzoom: 14, paint: { 'fill-color': SA.edificio, 'fill-antialias': true } },
+
+    { id: 'tren', type: 'line', source: 'omt', 'source-layer': 'transportation', filter: isClass(['rail','transit']), paint: { 'line-color': SA.tren, 'line-width': W([[10, 1], [14, 2], [18, 5]]) } },
+    { id: 'senderos', type: 'line', source: 'omt', 'source-layer': 'transportation', filter: isClass(['path','track']), minzoom: 15, paint: { 'line-color': '#2a2a2a', 'line-width': 1.2, 'line-dasharray': [2, 1.5] } },
+    { id: 'calle-menor', type: 'line', source: 'omt', 'source-layer': 'transportation', filter: isClass(['minor','service']), layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': SA.calle, 'line-width': W([[12, .8], [14, 2.4], [16, 7], [18, 24], [20, 70]]) } },
+    { id: 'calle-mayor', type: 'line', source: 'omt', 'source-layer': 'transportation', filter: isClass(['primary','secondary','tertiary']), layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': SA.calle, 'line-width': W([[8, 1], [12, 3], [14, 5.5], [16, 13], [18, 40], [20, 110]]) } },
+    { id: 'autopista-borde', type: 'line', source: 'omt', 'source-layer': 'transportation', filter: isClass(['trunk','motorway']), layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': SA.calle, 'line-width': W([[6, 1.5], [12, 5], [14, 9], [16, 20], [18, 56], [20, 140]]) } },
+    { id: 'autopista', type: 'line', source: 'omt', 'source-layer': 'transportation', filter: isClass(['trunk','motorway']), layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': SA.autopista, 'line-width': W([[6, .5], [12, 2], [14, 4], [16, 9], [18, 26], [20, 66]]) } },
+
+
+    // rutas
+    { id: 'alt', type: 'line', source: 'alt', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': SA.rutaAlt, 'line-width': W([[10, 4], [14, 7], [16, 10], [18, 24]]), 'line-opacity': .9 } },
+    { id: 'ruta-borde', type: 'line', source: 'ruta', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': SA.rutaBorde, 'line-width': W([[10, 5], [14, 9], [16, 14], [18, 30], [20, 70]]) } },
+    { id: 'ruta', type: 'line', source: 'ruta', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': SA.ruta, 'line-width': W([[10, 3], [14, 6], [16, 9], [18, 22], [20, 56]]) } },
+
+    // textos
+    { id: 'nombres-agua', type: 'symbol', source: 'omt', 'source-layer': 'water_name', layout: { 'text-field': nombre, 'text-font': FUENTE, 'text-size': 12, 'text-letter-spacing': .15 }, paint: { 'text-color': '#24406a', 'text-halo-color': 'rgba(200,215,235,.8)', 'text-halo-width': 1.2 } },
+    { id: 'nombres-calles', type: 'symbol', source: 'omt', 'source-layer': 'transportation_name', minzoom: 14,
+      layout: { 'symbol-placement': 'line', 'text-field': nombre, 'text-font': FUENTE, 'text-size': ['interpolate', ['linear'], ['zoom'], 14, 10, 18, 16], 'text-letter-spacing': .08, 'text-max-angle': 30 },
+      paint: { 'text-color': '#f2f2f2', 'text-halo-color': '#000', 'text-halo-width': 1.2 } },
+    { id: 'nombres-parques', type: 'symbol', source: 'omt', 'source-layer': 'park', minzoom: 14, layout: { 'text-field': nombre, 'text-font': FUENTE, 'text-size': 11, 'text-max-width': 8, 'text-letter-spacing': .05 }, paint: { 'text-color': '#0f3a08', 'text-halo-color': 'rgba(160,210,130,.8)', 'text-halo-width': 1.2 } },
+    { id: 'lugares', type: 'symbol', source: 'omt', 'source-layer': 'poi', minzoom: 14, filter: ['!=', iconoLugar, ''],
+      layout: { 'icon-image': iconoLugar, 'icon-size': ['interpolate', ['linear'], ['zoom'], 14, .45, 17, .62], 'icon-allow-overlap': false, 'symbol-sort-key': ['get', 'rank'],
+                'text-field': ['step', ['zoom'], '', 16.5, nombre], 'text-font': FUENTE, 'text-size': 10, 'text-offset': [0, 1.4], 'text-anchor': 'top', 'text-optional': true, 'text-max-width': 8 },
+      paint: { 'text-color': '#111', 'text-halo-color': 'rgba(225,225,220,.9)', 'text-halo-width': 1.3 } },
+    { id: 'nombres-poi', type: 'symbol', source: 'omt', 'source-layer': 'poi', minzoom: 15.5, filter: ['all', ['==', iconoLugar, ''], ['<=', ['get', 'rank'], 12]],
+      layout: { 'text-field': nombre, 'text-font': FUENTE, 'text-size': 10.5, 'text-letter-spacing': .05, 'text-max-width': 8 },
+      paint: { 'text-color': '#111', 'text-halo-color': 'rgba(220,220,215,.85)', 'text-halo-width': 1.4 } },
+    { id: 'nombres-zonas', type: 'symbol', source: 'omt', 'source-layer': 'place', filter: isClass(['suburb','neighbourhood','quarter','city','town','village']),
+      layout: { 'text-field': nombre, 'text-font': FUENTE, 'text-size': ['match', ['get', 'class'], ['city', 'town'], 18, 13], 'text-letter-spacing': .12, 'text-max-width': 9 },
+      paint: { 'text-color': '#fff', 'text-halo-color': '#000', 'text-halo-width': 2 } },
+  ],
+};
+
+/* ------------------------------- utilidades ------------------------------ */
+const $ = id => document.getElementById(id);
+const toRad = d => d * Math.PI / 180;
+function dist(a, b){
+  const dLat = toRad(b[1]-a[1]), dLng = toRad(b[0]-a[0]);
+  const s = Math.sin(dLat/2)**2 + Math.cos(toRad(a[1]))*Math.cos(toRad(b[1]))*Math.sin(dLng/2)**2;
+  return 2*6371000*Math.asin(Math.sqrt(s));
+}
+function bearing(a, b){
+  const y = Math.sin(toRad(b[0]-a[0]))*Math.cos(toRad(b[1]));
+  const x = Math.cos(toRad(a[1]))*Math.sin(toRad(b[1])) - Math.sin(toRad(a[1]))*Math.cos(toRad(b[1]))*Math.cos(toRad(b[0]-a[0]));
+  return (Math.atan2(y, x)*180/Math.PI + 360) % 360;
+}
+const fmtDist = m => m >= 1000 ? (m/1000).toFixed(m >= 10000 ? 0 : 1) + ' KM' : (Math.round(m/10)*10) + ' M';
+const fmtTime = s => { const m = Math.round(s/60); return m < 60 ? m + ' MIN' : Math.floor(m/60) + 'H ' + String(m%60).padStart(2,'0'); };
+const fmtClock = d => String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+let toastT, bannerT, zoneT;
+function toast(msg, ms=3200){ const t=$('toast'); t.textContent=msg; t.style.display='block'; clearTimeout(toastT); toastT=setTimeout(()=>t.style.display='none', ms); }
+function banner(big, small='', ms=3500){ $('bannerBig').textContent=big; $('bannerSmall').textContent=small; $('banner').classList.add('show'); clearTimeout(bannerT); bannerT=setTimeout(()=>$('banner').classList.remove('show'), ms); }
+
+/* --------------------------- carga de iconos SA ---------------------------
+   intenta: tu carpeta iconos/ -> servidor de open.mp -> dibujo de respaldo.
+   Los GIF originales son muy chiquitos (pixel art), así que se agrandan con
+   el algoritmo Scale2x (dos veces = x4) y luego se suavizan: bordes más lisos. */
+function loadImg(src, cors){
+  return new Promise((ok, fail) => { const i = new Image(); if (cors) i.crossOrigin = 'anonymous'; i.onload = () => ok(i); i.onerror = fail; i.src = src; });
+}
+const svgUrl = svg => 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+function scale2x(src, w, h){
+  const out = new Uint32Array(w * h * 4), W2 = w * 2;
+  const at = (x, y) => src[Math.min(h - 1, Math.max(0, y)) * w + Math.min(w - 1, Math.max(0, x))];
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++){
+    const P = at(x, y), A = at(x, y - 1), B = at(x + 1, y), C = at(x - 1, y), D = at(x, y + 1);
+    const o = (y * 2) * W2 + x * 2;
+    out[o]          = (C === A && C !== D && A !== B) ? A : P;
+    out[o + 1]      = (A === B && A !== C && B !== D) ? B : P;
+    out[o + W2]     = (D === C && D !== B && C !== A) ? C : P;
+    out[o + W2 + 1] = (B === D && B !== A && D !== C) ? D : P;
+  }
+  return out;
+}
+const TAM = 96; // resolución interna (se muestra a la mitad: nítido en pantallas retina)
+function suavizar(img, esPixelArt){
+  const c = document.createElement('canvas'); c.width = c.height = TAM;
+  const x = c.getContext('2d'); x.imageSmoothingEnabled = true; x.imageSmoothingQuality = 'high';
+  let fuente = img, fw = img.width, fh = img.height;
+  if (esPixelArt && CONFIG.suavizadoIconos === 0) x.imageSmoothingEnabled = false;
+  if (esPixelArt && fw <= 64 && CONFIG.suavizadoIconos > 0) {
+    const s = document.createElement('canvas'); s.width = fw; s.height = fh;
+    const sx = s.getContext('2d'); sx.drawImage(img, 0, 0);
+    let px = new Uint32Array(sx.getImageData(0, 0, fw, fh).data.buffer.slice(0)), w = fw, h = fh;
+    for (let k = 0; k < CONFIG.suavizadoIconos; k++) { px = scale2x(px, w, h); w *= 2; h *= 2; }
+    const big = document.createElement('canvas'); big.width = w; big.height = h;
+    big.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(px.buffer), w, h), 0, 0);
+    fuente = big; fw = w; fh = h;
+  }
+  const esc = Math.min(TAM / fw, TAM / fh) * .92, dw = fw * esc, dh = fh * esc;
+  x.drawImage(fuente, (TAM - dw) / 2, (TAM - dh) / 2, dw, dh);
+  return c;
+}
+const iconoCache = {};
+function iconoCanvas(id){
+  if (iconoCache[id]) return iconoCache[id];
+  return iconoCache[id] = (async () => {
+    for (const [src, cors] of [[CONFIG.carpetaIconos + 'icon' + id + '.gif', false], [CONFIG.iconosWeb + 'icon' + id + '.gif', true]]) {
+      try { const c = suavizar(await loadImg(src, cors), true); c.getContext('2d').getImageData(0, 0, 1, 1); return c; } catch(e){}
+    }
+    return suavizar(await loadImg(svgUrl(DIBUJOS[id] || DIBUJOS[41])), false);
+  })();
+}
+async function imagenMapa(id){
+  const c = await iconoCanvas(id);
+  return c.getContext('2d').getImageData(0, 0, TAM, TAM);
+}
+function saElement(id, size, cls){
+  const d = document.createElement('div'); d.className = cls || 'blip';
+  const img = new Image(size, size); img.alt = ''; d.appendChild(img);
+  iconoCanvas(id).then(c => img.src = c.toDataURL());
+  return d;
+}
+
+/* --------------------------------- mapa ---------------------------------- */
+const map = new maplibregl.Map({
+  container: 'map', style, center: CONFIG.inicio, zoom: 15, maxPitch: 70,
+  attributionControl: { compact: true, customAttribution: '© OpenStreetMap · OpenFreeMap' },
+});
+map.on('styleimagemissing', () => {}); // los iconos se agregan apenas cargan
+
+let iconsReady = false;
+async function prepararIconos(){
+  if (iconsReady) return; iconsReady = true;
+  // flecha de dirección sobre la ruta
+  const c = document.createElement('canvas'); c.width = c.height = 32; const x = c.getContext('2d');
+  x.lineJoin = 'round'; x.lineWidth = 3; x.strokeStyle = '#000'; x.fillStyle = '#fff';
+  x.beginPath(); x.moveTo(8, 6); x.lineTo(24, 16); x.lineTo(8, 26); x.lineTo(13, 16); x.closePath(); x.stroke(); x.fill();
+  map.addImage('chevron', x.getImageData(0, 0, 32, 32), { pixelRatio: 1 });
+  const ids = [...new Set([...Object.values(LUGARES).map(v => v[0]), ...POR_NOMBRE.map(v => v[1])])];
+  await Promise.all(ids.map(async id => { try { map.addImage('sa' + id, await imagenMapa(id), { pixelRatio: 2 }); } catch(e){ console.warn('icono', id, e); } }));
+}
+map.on('style.load', prepararIconos);
+map.on('styledata', () => { if (map.isStyleLoaded()) prepararIconos(); });
+
+const player = new maplibregl.Marker({ element: saElement(2, 30, 'player'), rotationAlignment: 'map', pitchAlignment: 'map' }).setLngLat(CONFIG.inicio).addTo(map);
+let destMarker = null;
+
+const S = {
+  pos: null, heading: 0, speed: 0, follow: true, voice: true,
+  dest: null, destName: '', routes: [], route: null, coords: [], cum: [], steps: [],
+  navigating: false, lastReroute: 0, offCount: 0, lastSpoken: '', lastZonePos: null,
+};
+
+/* reloj */
+const tick = () => $('clock').textContent = fmtClock(new Date());
+tick(); setInterval(tick, 1000);
+
+/* brújula (icono "N" de SA): muestra el norte; tócala para volver al norte */
+const compass = $('compass'); compass.appendChild(saElement(4, 34, 'compass-img'));
+map.on('rotate', () => { compass.style.transform = `rotate(${-map.getBearing()}deg)`; });
+compass.onclick = () => { S.follow = false; map.easeTo({ bearing: 0, pitch: 0, duration: 600 }); };
+
+/* ----------------------------------- GPS ---------------------------------- */
+function camera(){
+  if (!S.pos || !S.follow) return;
+  if (S.navigating) map.easeTo({ center: S.pos, bearing: S.heading, pitch: CONFIG.inclinacionNav, zoom: 17.2, duration: 900, offset: [0, map.getContainer().clientHeight * 0.2] });
+  else map.easeTo({ center: S.pos, duration: 700 });
+}
+function onPosition(p){
+  const now = [p.coords.longitude, p.coords.latitude];
+  const prev = S.pos; S.pos = now;
+  if (p.coords.heading != null && !isNaN(p.coords.heading) && (p.coords.speed || 0) > 0.8) S.heading = p.coords.heading;
+  else if (prev && dist(prev, now) > 4) S.heading = bearing(prev, now);
+  S.speed = p.coords.speed != null && !isNaN(p.coords.speed) ? p.coords.speed * 3.6 : S.speed * 0.7;
+  $('speed').innerHTML = String(Math.max(0, Math.round(S.speed))).padStart(3, '0') + '<span> KM/H</span>';
+  player.setLngLat(now).setRotation(S.heading);
+  if (!prev) { map.jumpTo({ center: now, zoom: 16 }); updateZone(true); } else { camera(); updateZone(false); }
+  if (S.navigating) progress(); else recortarRuta();
+}
+function onPosError(e){
+  toast(e.code === 1 ? 'Permite el acceso a tu ubicación para usar el GPS.' : 'No se pudo obtener tu ubicación.');
+  if (!S.pos) { S.pos = CONFIG.inicio; player.setLngLat(S.pos); updateZone(true); }
+}
+if ('geolocation' in navigator) navigator.geolocation.watchPosition(onPosition, onPosError, { enableHighAccuracy: true, maximumAge: 1000, timeout: 15000 });
+else onPosError({ code: 0 });
+window.addEventListener('deviceorientationabsolute', ev => {
+  if (S.speed < 3 && ev.alpha != null) { S.heading = (360 - ev.alpha) % 360; player.setRotation(S.heading); }
+}, true);
+
+map.on('dragstart', () => { S.follow = false; });
+
+/* aviso si el mapa no logra cargar */
+let mapError = '';
+map.on('error', e => { mapError = (e && e.error && e.error.message) || 'error'; console.warn('Mapa:', mapError); });
+setTimeout(() => {
+  if (iconsReady) return;
+  const local = !/^https?:$/.test(location.protocol);
+  toast(local ? 'El mapa no carga si abres el archivo desde el teléfono. Súbelo a GitHub Pages (https) y ábrelo desde ahí.'
+              : 'No se pudo cargar el mapa. Revisa tu conexión. ' + (mapError ? '(' + mapError + ')' : ''), 12000);
+}, 8000);
+
+/* mantener presionado (o clic derecho) = marcar destino */
+let pressT;
+map.on('contextmenu', e => setDestination([e.lngLat.lng, e.lngLat.lat], 'Punto marcado', ''));
+map.on('touchstart', e => { if (e.originalEvent.touches.length !== 1) return; const ll = e.lngLat; pressT = setTimeout(() => setDestination([ll.lng, ll.lat], 'Punto marcado', ''), 650); });
+['touchend', 'touchmove', 'dragstart', 'zoomstart'].forEach(ev => map.on(ev, () => clearTimeout(pressT)));
+
+/* tocar un lugar (blip) -> ventanita con "Ir aquí" */
+map.on('click', 'lugares', e => {
+  const f = e.features[0], p = f.properties;
+  const tipo = (POR_NOMBRE.find(([pal]) => pal.some(w => (p.name || '').toLowerCase().includes(w))) || [])[2] || (LUGARES[p.subclass] || [0, 'Lugar'])[1];
+  const name = p['name:es'] || p.name || tipo;
+  const box = document.createElement('div'); box.innerHTML = `<b></b><br><span></span>`;
+  box.querySelector('b').textContent = name; box.querySelector('span').textContent = tipo;
+  const go = document.createElement('button'); go.className = 'btn primary'; go.textContent = 'Ir aquí';
+  const pop = new maplibregl.Popup({ offset: 14 }).setLngLat(f.geometry.coordinates).setDOMContent(box).addTo(map);
+  go.onclick = () => { pop.remove(); setDestination(f.geometry.coordinates, name, tipo); };
+  box.appendChild(go);
+});
+map.on('mouseenter', 'lugares', () => map.getCanvas().style.cursor = 'pointer');
+map.on('mouseleave', 'lugares', () => map.getCanvas().style.cursor = '');
+map.on('click', 'alt', e => { const i = e.features[0].properties.i; if (i != null) elegirRuta(i); });
+
+/* ------------------- nombre de zona (como "GROVE STREET") ----------------- */
+async function updateZone(force){
+  if (!S.pos) return;
+  if (!force && S.lastZonePos && dist(S.lastZonePos, S.pos) < 400) return;
+  S.lastZonePos = S.pos;
+  try {
+    const r = await fetch(`${CONFIG.nominatim}reverse?format=jsonv2&zoom=16&accept-language=es&lat=${S.pos[1]}&lon=${S.pos[0]}`);
+    const a = (await r.json()).address || {};
+    const name = a.neighbourhood || a.suburb || a.quarter || a.city_district || a.road || a.city || a.town;
+    if (name && name !== $('zone').dataset.last) {
+      $('zone').dataset.last = name; $('zone').textContent = name; $('zone').classList.add('show');
+      clearTimeout(zoneT); zoneT = setTimeout(() => $('zone').classList.remove('show'), 4500);
+    }
+  } catch(e){}
+}
+
+/* -------------------------------- búsqueda --------------------------------
+   Busca en dos servicios a la vez (Photon y Nominatim) y junta los resultados.
+   También acepta coordenadas (-16.39, -71.53) o un enlace largo de Google Maps.
+   Si el número exacto de la casa no está registrado, busca la calle y te avisa. */
+let searchT, searchN = 0;
+const ABREV = [[/\bav\.?\s/gi, 'Avenida '], [/\bjr\.?\s/gi, 'Jirón '], [/\bca\.?\s/gi, 'Calle '], [/\bcll\.?\s/gi, 'Calle '], [/\bpje\.?\s/gi, 'Pasaje '],
+               [/\burb\.?\s/gi, 'Urbanización '], [/\bmz\.?\s/gi, 'Manzana '], [/\bprol\.?\s/gi, 'Prolongación '], [/\bn[°ºo]\.?\s*/gi, ''], [/\bnro\.?\s*/gi, ''], [/#\s*/g, '']];
+const normalizar = t => ABREV.reduce((s, [re, r]) => s.replace(re, r), ' ' + t + ' ').replace(/\s+/g, ' ').trim();
+const sinNumero = t => t.replace(/\b\d+[a-z]?\b/gi, ' ').replace(/\s*,\s*,/g, ',').replace(/\s+/g, ' ').replace(/\s+,/g, ',').trim();
+function coordsDe(t){
+  let m = t.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/) || t.match(/[?&](?:q|query|ll|destination)=(-?\d+\.\d+),\s*(-?\d+\.\d+)/) || t.match(/^\s*(-?\d{1,2}\.\d+)\s*[, ]\s*(-?\d{1,3}\.\d+)\s*$/);
+  return m ? [+m[2], +m[1]] : null;
+}
+async function photon(q){
+  const c = S.pos || CONFIG.inicio;
+  const r = await fetch(`${CONFIG.photon}?limit=6&lat=${c[1]}&lon=${c[0]}&q=${encodeURIComponent(q)}`);
+  const j = await r.json();
+  return (j.features || []).map(f => {
+    const p = f.properties, calle = [p.street, p.housenumber].filter(Boolean).join(' ');
+    const titulo = p.name || calle || p.city || q;
+    const sub = [p.name && calle ? calle : '', p.district || p.locality, p.city, p.state].filter(Boolean).join(', ');
+    return { ll: f.geometry.coordinates, titulo, sub, exacto: !!p.housenumber };
+  });
+}
+async function nominatim(q){
+  const c = S.pos || CONFIG.inicio;
+  const vb = [c[0]-0.6, c[1]+0.6, c[0]+0.6, c[1]-0.6].join(',');
+  const r = await fetch(`${CONFIG.nominatim}search?format=jsonv2&limit=6&addressdetails=1&accept-language=es&viewbox=${vb}&q=${encodeURIComponent(q)}`);
+  return (await r.json()).map(it => {
+    const parts = it.display_name.split(',');
+    return { ll: [+it.lon, +it.lat], titulo: parts[0], sub: parts.slice(1, 4).join(',').trim(), exacto: !!(it.address && it.address.house_number) };
+  });
+}
+async function buscarTodo(q){
+  const res = await Promise.allSettled([photon(q), nominatim(q), normalizar(q) !== q ? nominatim(normalizar(q)) : Promise.resolve([])]);
+  const out = [];
+  res.forEach(r => (r.value || []).forEach(it => { if (!out.some(o => dist(o.ll, it.ll) < 40)) out.push(it); }));
+  const c = S.pos || CONFIG.inicio; // los más cercanos primero, los exactos arriba
+  return out.sort((a, b) => (b.exacto - a.exacto) || (dist(c, a.ll) - dist(c, b.ll))).slice(0, 8);
+}
+async function search(text){
+  text = text.trim(); const box = $('results'), n = ++searchN;
+  if (text.length < 3) { box.style.display = 'none'; return; }
+  const ll = coordsDe(text);
+  if (ll) { box.style.display = 'none'; setDestination(ll, 'Coordenadas', `${ll[1].toFixed(5)}, ${ll[0].toFixed(5)}`); return; }
+  box.innerHTML = '<div><small>Buscando…</small></div>'; box.style.display = 'block';
+  let list = [], aprox = false;
+  try {
+    list = await buscarTodo(text);
+    if (!list.length && /\d/.test(text)) { list = await buscarTodo(sinNumero(normalizar(text))); aprox = list.length > 0; }
+  } catch(e){}
+  if (n !== searchN) return; // llegó una búsqueda más nueva
+  box.innerHTML = '';
+  if (!list.length) { box.innerHTML = '<div>Sin resultados<small>Prueba con calle + distrito (ej. "Av. Ejército 1020, Cayma"), o pega las coordenadas de Google Maps.</small></div>'; return; }
+  if (aprox) { const a = document.createElement('div'); a.innerHTML = '<small>No encontré ese número exacto. Te muestro la calle:</small>'; box.appendChild(a); }
+  list.forEach(it => {
+    const d = document.createElement('div'); d.innerHTML = '<span></span><small></small>';
+    d.firstChild.textContent = it.titulo; d.lastChild.textContent = it.sub;
+    d.onclick = () => { box.style.display = 'none'; $('q').blur(); setDestination(it.ll, it.titulo, it.sub); };
+    box.appendChild(d);
+  });
+}
+$('q').addEventListener('input', e => { clearTimeout(searchT); searchT = setTimeout(() => search(e.target.value), 450); });
+$('q').addEventListener('keydown', e => { if (e.key === 'Enter') search(e.target.value); });
+document.addEventListener('click', e => { if (!$('top').contains(e.target)) $('results').style.display = 'none'; });
+
+/* ----------------------------- destino y ruta ----------------------------- */
+async function setDestination(ll, name, sub){
+  S.dest = ll; S.destName = name;
+  if (destMarker) destMarker.remove();
+  destMarker = new maplibregl.Marker({ element: saElement(41, 26) }).setLngLat(ll).addTo(map);
+  $('cardTitle').textContent = name; $('cardSub').textContent = sub || `${ll[1].toFixed(5)}, ${ll[0].toFixed(5)}`;
+  document.body.classList.add('has-card');
+  ['stDist','stTime','stEta'].forEach(id => $(id).textContent = '…');
+  $('alts').innerHTML = '';
+  S.follow = false;
+  await calcRoute(true);
+}
+async function calcRoute(fit){
+  if (!S.dest) return;
+  const from = S.pos || CONFIG.inicio;
+  try {
+    const r = await fetch(`${CONFIG.osrm}${CONFIG.perfil}/${from[0]},${from[1]};${S.dest[0]},${S.dest[1]}?overview=full&geometries=geojson&steps=true&alternatives=${S.navigating ? 'false' : '3'}`);
+    const j = await r.json();
+    if (!j.routes || !j.routes.length) throw 0;
+    S.routes = j.routes;
+    elegirRuta(0, fit);
+  } catch(e){ toast('No se encontró una ruta hasta ese punto.'); }
+}
+function elegirRuta(i, fit){
+  const rt = S.routes[i]; if (!rt) return;
+  S.route = rt;
+  S.coords = rt.geometry.coordinates;
+  S.cum = [0]; for (let k = 1; k < S.coords.length; k++) S.cum.push(S.cum[k-1] + dist(S.coords[k-1], S.coords[k]));
+  S.steps = rt.legs[0].steps.map(st => ({ st, idx: nearestIndex(st.maneuver.location).i }));
+  map.getSource('ruta').setData({ type: 'Feature', geometry: rt.geometry, properties: {} });
+  map.getSource('hecha').setData(empty);
+  map.getSource('alt').setData({ type: 'FeatureCollection', features: S.routes.map((r, k) => ({ type: 'Feature', geometry: r.geometry, properties: { i: k } })).filter((f, k) => k !== i) });
+  const box = $('alts'); box.innerHTML = '';
+  if (S.routes.length > 1) S.routes.forEach((r, k) => {
+    const b = document.createElement('button'); b.className = 'chip' + (k === i ? ' on' : '');
+    b.innerHTML = `<b>${fmtTime(r.duration)}</b>${fmtDist(r.distance)}`;
+    b.onclick = () => elegirRuta(k, false); box.appendChild(b);
+  });
+  if (fit) {
+    const b = new maplibregl.LngLatBounds(); S.routes.forEach(r => r.geometry.coordinates.forEach(c => b.extend(c)));
+    map.fitBounds(b, { padding: { top: 90, bottom: 290, left: 50, right: 90 }, pitch: 0, bearing: 0, duration: 900 });
+  }
+  updateStats(rt.distance, rt.duration);
+  if (S.navigating) progress(); else recortarRuta();
+}
+function updateStats(m, s){
+  const eta = fmtClock(new Date(Date.now() + s*1000));
+  $('stDist').textContent = fmtDist(m); $('stTime').textContent = fmtTime(s); $('stEta').textContent = eta;
+  $('tEta').textContent = eta; $('tMin').textContent = Math.max(1, Math.round(s/60)); $('tKm').textContent = (m/1000).toFixed(1);
+}
+function clearRoute(){
+  Object.assign(S, { dest: null, routes: [], route: null, coords: [], steps: [], navigating: false });
+  ['ruta', 'hecha', 'alt'].forEach(id => map.getSource(id) && map.getSource(id).setData(empty));
+  if (destMarker) { destMarker.remove(); destMarker = null; }
+  document.body.classList.remove('nav', 'has-card');
+  map.easeTo({ pitch: 0, bearing: 0, zoom: 16, duration: 800, center: S.pos || undefined });
+}
+
+/* animación de "flujo" sobre la ruta */
+function animarRuta(){
+  const seq = [[0,4,3],[0.5,4,2.5],[1,4,2],[1.5,4,1.5],[2,4,1],[2.5,4,0.5],[3,4,0],[0,0.5,3,3.5],[0,1,3,3],[0,1.5,3,2.5],[0,2,3,2],[0,2.5,3,1.5],[0,3,3,1],[0,3.5,3,0.5]];
+  let step = -1;
+  setInterval(() => {
+    if (!S.coords.length || document.hidden) return;
+    step = (step + 1) % seq.length;
+    try { map.setPaintProperty('ruta-flujo', 'line-dasharray', seq[step]); } catch(e){}
+  }, 90);
+}
+
+/* ------------------------- seguimiento de la ruta ------------------------- */
+// la línea morada se recorta: empieza en tu flecha y lo ya recorrido desaparece
+function ubicarEnRuta(){
+  const n = nearestIndex(S.pos);
+  let off = n.d, along = S.cum[n.i], segI = n.i, segT = 0;
+  [n.i - 1, n.i].forEach(i => {
+    if (i >= 0 && i < S.coords.length - 1){
+      const sd = segDistance(S.pos, S.coords[i], S.coords[i+1]);
+      if (sd.d <= off) { off = sd.d; along = S.cum[i] + sd.t * (S.cum[i+1] - S.cum[i]); segI = i; segT = sd.t; }
+    }
+  });
+  return { off, along, segI, segT };
+}
+function recortarRuta(segI, segT){
+  if (!S.coords.length || !S.pos || !map.getSource('ruta')) return;
+  if (segI == null) ({ segI, segT } = ubicarEnRuta());
+  const a = S.coords[segI], b = S.coords[Math.min(segI + 1, S.coords.length - 1)];
+  const cut = [a[0] + (b[0]-a[0]) * segT, a[1] + (b[1]-a[1]) * segT];
+  map.getSource('ruta').setData({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [S.pos, cut, ...S.coords.slice(segI + 1)] } });
+}
+function nearestIndex(p){
+  let best = Infinity, bi = 0;
+  for (let i = 0; i < S.coords.length; i++){ const d = dist(p, S.coords[i]); if (d < best) { best = d; bi = i; } }
+  return { i: bi, d: best };
+}
+function segDistance(p, a, b){
+  const k = Math.cos(toRad(p[1])) * 111320, kl = 110540;
+  const ax = (a[0]-p[0])*k, ay = (a[1]-p[1])*kl, bx = (b[0]-p[0])*k, by = (b[1]-p[1])*kl;
+  const dx = bx-ax, dy = by-ay, len = dx*dx + dy*dy;
+  let t = len ? -(ax*dx + ay*dy)/len : 0; t = Math.max(0, Math.min(1, t));
+  return { d: Math.hypot(ax + t*dx, ay + t*dy), t };
+}
+function progress(){
+  if (!S.coords.length || !S.pos) return;
+  const { off, along, segI, segT } = ubicarEnRuta();
+  const total = S.cum[S.cum.length - 1], remaining = Math.max(0, total - along);
+  if (dist(S.pos, S.dest) < 25 || remaining < 15){
+    speak('Has llegado a tu destino'); banner('¡Llegaste!', S.destName + '  ·  RESPETO +', 5000); clearRoute(); return;
+  }
+  if (off > CONFIG.desvioMetros){
+    if (++S.offCount >= 2 && Date.now() - S.lastReroute > 8000){ S.lastReroute = Date.now(); S.offCount = 0; toast('Recalculando ruta…', 2000); calcRoute(false); return; }
+  } else S.offCount = 0;
+  recortarRuta(segI, segT);
+
+  const next = S.steps.find(s => S.cum[s.idx] > along + 8 && s.st.maneuver.type !== 'depart') || S.steps[S.steps.length - 1];
+  const dNext = Math.max(0, S.cum[next.idx] - along);
+  $('instrDist').textContent = fmtDist(dNext);
+  $('instrText').textContent = instruccion(next.st);
+  drawArrow(next.st);
+  updateStats(remaining, S.route.duration * (total ? remaining / total : 0));
+  if (dNext < 220){
+    const key = next.idx + (dNext < 50 ? 'b' : 'a');
+    if (key !== S.lastSpoken){ S.lastSpoken = key; speak((dNext < 50 ? 'Ahora, ' : 'En ' + Math.round(dNext/10)*10 + ' metros, ') + instruccion(next.st).toLowerCase()); }
+  }
+}
+
+/* ------------------------ instrucciones en español ------------------------ */
+const MOD = { 'left':'a la izquierda', 'right':'a la derecha', 'slight left':'ligeramente a la izquierda', 'slight right':'ligeramente a la derecha', 'sharp left':'fuerte a la izquierda', 'sharp right':'fuerte a la derecha', 'straight':'recto', 'uturn':'en U' };
+function instruccion(st){
+  const m = st.maneuver, via = st.name ? ' por ' + st.name : '', mod = MOD[m.modifier] || '';
+  switch (m.type){
+    case 'depart': return 'Sal' + via;
+    case 'arrive': return 'Llegas a ' + S.destName;
+    case 'turn': case 'end of road': return (m.modifier === 'uturn' ? 'Da la vuelta en U' : 'Gira ' + mod) + via;
+    case 'continue': case 'new name': return (m.modifier && m.modifier !== 'straight' ? 'Sigue ' + mod : 'Sigue recto') + via;
+    case 'merge': return 'Incorpórate ' + mod + via;
+    case 'on ramp': return 'Toma la entrada ' + mod + via;
+    case 'off ramp': return 'Toma la salida ' + mod + via;
+    case 'fork': return 'En la bifurcación, mantente ' + mod + via;
+    case 'roundabout': case 'rotary': case 'roundabout turn': return 'En el óvalo, toma la ' + (m.exit ? m.exit + 'ª salida' : 'salida') + via;
+    default: return (mod ? 'Ve ' + mod : 'Continúa') + via;
+  }
+}
+function drawArrow(st){
+  const m = st.maneuver;
+  if (m.type === 'arrive') { $('instrIcon').innerHTML = `<rect x="11" y="11" width="30" height="30" fill="#e0262b" stroke="#fff" stroke-width="3"/>`; return; }
+  const rot = { 'left':-90, 'right':90, 'slight left':-45, 'slight right':45, 'sharp left':-135, 'sharp right':135 }[m.modifier] || 0;
+  const arrow = m.modifier === 'uturn'
+    ? `<path d="M34 46V20a8 8 0 0 0-16 0v6" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round"/><path d="M10 24h16l-8 12z" fill="#fff"/>`
+    : `<g transform="rotate(${rot} 26 30)"><path d="M26 48V18" stroke="#fff" stroke-width="7" stroke-linecap="round"/><path d="M14 22L26 6l12 16z" fill="#fff" stroke-linejoin="round"/></g>`;
+  $('instrIcon').innerHTML = (/roundabout|rotary/.test(m.type) ? `<circle cx="26" cy="30" r="12" fill="none" stroke="#acc8ff" stroke-width="3" stroke-dasharray="4 3"/>` : '') + arrow;
+}
+
+/* ---------------------------------- voz ---------------------------------- */
+function speak(t){
+  if (!S.voice || !('speechSynthesis' in window)) return;
+  const u = new SpeechSynthesisUtterance(t); u.lang = 'es-ES'; u.rate = 1.02;
+  speechSynthesis.cancel(); speechSynthesis.speak(u);
+}
+
+/* --------------------------------- botones -------------------------------- */
+let blipsOn = true;
+$('btnPoi').classList.add('on');
+$('btnPoi').onclick = () => {
+  blipsOn = !blipsOn; $('btnPoi').classList.toggle('on', blipsOn);
+  map.setLayoutProperty('lugares', 'visibility', blipsOn ? 'visible' : 'none');
+  toast(blipsOn ? 'Blips visibles' : 'Blips ocultos', 1400);
+};
+$('btnVoice').onclick = () => { S.voice = !S.voice; $('btnVoice').classList.toggle('on', S.voice); toast(S.voice ? 'Voz activada' : 'Voz desactivada', 1500); };
+$('btnCenter').onclick = () => { S.follow = true; if (S.pos) S.navigating ? camera() : map.easeTo({ center: S.pos, zoom: 16, pitch: 0, bearing: 0 }); };
+$('btnGo').onclick = () => {
+  if (!S.route) return;
+  S.navigating = true; S.follow = true; S.lastSpoken = '';
+  S.routes = [S.route]; map.getSource('alt').setData(empty);
+  document.body.classList.add('nav');
+  banner('Ruta iniciada', S.destName, 2500);
+  camera(); progress(); speak('Ruta iniciada hacia ' + S.destName);
+};
+$('btnCancel').onclick = clearRoute;
+$('btnEnd').onclick = clearRoute;
+</script>
+</body>
+</html>
